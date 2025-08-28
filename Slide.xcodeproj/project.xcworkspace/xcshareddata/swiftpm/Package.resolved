@@ -1,5 +1,5 @@
 {
-  "originHash" : "8812820497ba1cf0a04b568822e56942fac6409e38fd366297717fb381de3eaa",
+  "originHash" : "88c329d67f1df7388a7f706932468d59dec8509b8a6098cc1b0aec9c01618780",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -17,15 +17,6 @@
       "state" : {
         "revision" : "61b85103a1aeed8218f17c794687781505fbbef5",
         "version" : "11.2.0"
-      }
-    },
-    {
-      "identity" : "colorkit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Boris-Em/ColorKit",
-      "state" : {
-        "branch" : "master",
-        "revision" : "6e4375a6126eac0a29893c607ae318bdbe33310c"
       }
     },
     {
@@ -143,6 +134,15 @@
       "state" : {
         "revision" : "102a647b573f60f73afdce5613a51d71349fe507",
         "version" : "1.30.0"
+      }
+    },
+    {
+      "identity" : "swiftui-loop-videoplayer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftuiux/swiftui-loop-videoPlayer.git",
+      "state" : {
+        "revision" : "22ff6e03e7e415ce3765c34bcec2315f8c27561c",
+        "version" : "1.8.7"
       }
     }
   ],

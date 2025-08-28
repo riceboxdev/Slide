@@ -1,5 +1,15 @@
+//
+//  SearchBar.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/26/25.
+//
+
+import SwiftUI
+
+
 struct SearchBar: View {
-    @EnvironmentObject var coordinator: AppCoordinator
+//    @EnvironmentObject var coordinator: AppCoordinator
     @Binding var text: String
     @FocusState private var isFocused
     

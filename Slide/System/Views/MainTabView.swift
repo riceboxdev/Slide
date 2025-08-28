@@ -12,6 +12,7 @@ import FirebaseAuth
 // MARK: - Main Tab View
 struct MainTabView: View {
     @EnvironmentObject var coordinator: AppCoordinator
+    @StateObject var homeViewModel = HomeViewModel()
 
     var body: some View {
         TabView {
@@ -23,8 +24,8 @@ struct MainTabView: View {
 //            } label: {
 //                Text("Discover")
 //            }
-            UpdatedBusinessOnboardingFlow()
-//            DiscoverView(viewModel: viewModel)
+//            FastVideoFeed()
+            HomeView(viewModel: homeViewModel)
                 .tabItem {
                     Image(systemName: "staroflife.fill")
                     Text("Discover")

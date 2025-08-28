@@ -75,90 +75,27 @@ struct PlaceDetailsResponse: Codable {
     let postalAddress: PostalAddress?
 }
 
-// MARK: - Models
-struct SlideBuisiness: Codable {
-    let id: String?
-    let name: String?
-    let displayName: DisplayName?
-    let formattedAddress: String?
-    let location: GeoLocation?
-    let plusCode: PlusCode?
-    let types: [String]?
-    let businessStatus: String?
-    let rating: Double?
-    let userRatingCount: Int?
-    let websiteUri: String?
-    let nationalPhoneNumber: String?
-    let internationalPhoneNumber: String?
-    let addressComponents: [AddressComponent]?
-    let addressDescriptor: AddressDescriptor?
-    let photos: [Photo]?
-    let viewport: Viewport?
-    let googleMapsUri: String?
-    let regularOpeningHours: OpeningHours?
-    let currentOpeningHours: OpeningHours?
-    let primaryType: String?
-    let primaryTypeDisplayName: DisplayName?
-    let shortFormattedAddress: String?
-    let editorialSummary: DisplayName?
-    let reviews: [Review]?
-    let paymentOptions: PaymentOptions?
-    let parkingOptions: ParkingOptions?
-    let accessibilityOptions: AccessibilityOptions?
-    let fuelOptions: FuelOptions?
-    let evChargeOptions: EVChargeOptions?
-    let generativeSummary: GenerativeSummary?
-    let priceLevel: String?
-    let userRatingsTotal: Int?
-    let utcOffset: String?
-    let adrFormatAddress: String?
-    let businessStatus_: String?
-    let iconMaskBaseUri: String?
-    let iconBackgroundColor: String?
-    let takeout: Bool?
-    let delivery: Bool?
-    let dineIn: Bool?
-    let curbsidePickup: Bool?
-    let reservable: Bool?
-    let servesBreakfast: Bool?
-    let servesLunch: Bool?
-    let servesDinner: Bool?
-    let servesBeer: Bool?
-    let servesWine: Bool?
-    let servesBrunch: Bool?
-    let servesVegetarianFood: Bool?
-    let outdoorSeating: Bool?
-    let liveMusic: Bool?
-    let restroom: Bool?
-    let goodForChildren: Bool?
-    let goodForGroups: Bool?
-    let allowsDogs: Bool?
-    let googleMapsLinks: GoogleMapsLinks?
-    let reviewSummary: ReviewSummary?
-    let postalAddress: PostalAddress?
-}
-
 // MARK: - New Models for missing fields
 
 struct GenerativeSummary: Codable {
-    let overview: DisplayName?
-    let overviewFlagContentUri: String?
-    let disclosureText: DisplayName?
+    var overview: DisplayName?
+    var overviewFlagContentUri: String?
+    var disclosureText: DisplayName?
 }
 
 struct GoogleMapsLinks: Codable {
-    let directionsUri: String?
-    let placeUri: String?
-    let writeAReviewUri: String?
-    let reviewsUri: String?
-    let photosUri: String?
+    var directionsUri: String?
+    var placeUri: String?
+    var writeAReviewUri: String?
+    var reviewsUri: String?
+    var photosUri: String?
 }
 
 struct ReviewSummary: Codable {
-    let text: DisplayName?
-    let flagContentUri: String?
-    let disclosureText: DisplayName?
-    let reviewsUri: String?
+    var text: DisplayName?
+    var flagContentUri: String?
+    var disclosureText: DisplayName?
+    var reviewsUri: String?
 }
 
 struct PostalAddress: Codable {
@@ -173,8 +110,8 @@ struct PostalAddress: Codable {
 // MARK: - Existing Models (keeping them the same)
 
 struct DisplayName: Codable {
-    let text: String
-    let languageCode: String?
+    var text: String
+    var languageCode: String?
 }
 
 struct GeoLocation: Codable, Identifiable {
@@ -255,9 +192,9 @@ struct Viewport: Codable {
 }
 
 struct OpeningHours: Codable {
-    let openNow: Bool?
-    let periods: [Period]?
-    let weekdayDescriptions: [String]?
+    var openNow: Bool?
+    var periods: [Period]?
+    var weekdayDescriptions: [String]?
 }
 
 struct Period: Codable {
@@ -284,42 +221,42 @@ struct Review: Codable {
 }
 
 struct PaymentOptions: Codable {
-    let acceptsCreditCards: Bool?
-    let acceptsDebitCards: Bool?
-    let acceptsCashOnly: Bool?
-    let acceptsNfc: Bool?
+    var acceptsCreditCards: Bool?
+    var acceptsDebitCards: Bool?
+    var acceptsCashOnly: Bool?
+    var acceptsNfc: Bool?
 }
 
 struct ParkingOptions: Codable {
-    let paidGarageParking: Bool?
-    let paidLotParking: Bool?
-    let paidStreetParking: Bool?
-    let valetParking: Bool?
-    let freeGarageParking: Bool?
-    let freeLotParking: Bool?
-    let freeStreetParking: Bool?
+    var paidGarageParking: Bool?
+    var paidLotParking: Bool?
+    var paidStreetParking: Bool?
+    var valetParking: Bool?
+    var freeGarageParking: Bool?
+    var freeLotParking: Bool?
+    var freeStreetParking: Bool?
 }
 
 struct AccessibilityOptions: Codable {
-    let wheelchairAccessibleParking: Bool?
-    let wheelchairAccessibleEntrance: Bool?
-    let wheelchairAccessibleRestroom: Bool?
-    let wheelchairAccessibleSeating: Bool?
+    var wheelchairAccessibleParking: Bool?
+    var wheelchairAccessibleEntrance: Bool?
+    var wheelchairAccessibleRestroom: Bool?
+    var wheelchairAccessibleSeating: Bool?
 }
 
 struct FuelOptions: Codable {
-    let fuelTypes: [String]?
+    var fuelTypes: [String]?
 }
 
 struct EVChargeOptions: Codable {
-    let connectorCount: Int?
-    let connectorAggregation: [ConnectorAggregation]?
+    var connectorCount: Int?
+    var connectorAggregation: [ConnectorAggregation]?
 }
 
 struct ConnectorAggregation: Codable {
-    let type: String?
-    let maxChargeRateKw: Double?
-    let count: Int?
+    var type: String?
+    var maxChargeRateKw: Double?
+    var count: Int?
 }
 
 // MARK: - Field Enums (keeping the same)

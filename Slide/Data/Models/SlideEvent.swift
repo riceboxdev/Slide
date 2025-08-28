@@ -1,5 +1,14 @@
+//
+//  SlideEvent.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/26/25.
+//
+
+
 import Foundation
 import FirebaseFirestore
+import Combine
 
 // MARK: - Event Models
 
@@ -240,7 +249,7 @@ class EventsService: ObservableObject {
         eventToSave.shareCount = 0
         eventToSave.favoriteCount = 0
         
-        let docRef = try await db.collection(eventsCollection).addDocument(from: eventToSave)
+        let docRef = try db.collection(eventsCollection).addDocument(from: eventToSave)
         return docRef.documentID
     }
     
@@ -254,7 +263,7 @@ class EventsService: ObservableObject {
         var eventToUpdate = event
         eventToUpdate.updatedAt = Timestamp()
         
-        try await db.collection(eventsCollection).document(eventId).setData(from: eventToUpdate)
+        try db.collection(eventsCollection).document(eventId).setData(from: eventToUpdate)
     }
     
     // MARK: - Fetch Events
@@ -337,7 +346,7 @@ class EventsService: ObservableObject {
         registrationToSave.status = .confirmed
         registrationToSave.confirmationCode = generateConfirmationCode()
         
-        let docRef = try await db.collection(registrationsCollection).addDocument(from: registrationToSave)
+        let docRef = try db.collection(registrationsCollection).addDocument(from: registrationToSave)
         
         // Update event attendee count
         try await updateEventAttendeeCount(eventId: eventId, change: registration.quantity)

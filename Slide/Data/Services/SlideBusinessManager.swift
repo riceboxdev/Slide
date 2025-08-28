@@ -1,7 +1,16 @@
+//
+//  SlideBusinessManager.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/25/25.
+//
+
+
 import SwiftUI
 import Foundation
 import FirebaseFirestore
-import FirebaseFirestoreSwift
+import FirebaseFirestore
+import Combine
 
 @MainActor
 class SlideBusinessManager: ObservableObject {
@@ -89,7 +98,9 @@ class SlideBusinessManager: ObservableObject {
                     allowsDogs: business.allowsDogs,
                     googleMapsLinks: business.googleMapsLinks,
                     reviewSummary: business.reviewSummary,
-                    postalAddress: business.postalAddress
+                    postalAddress: business.postalAddress,
+                    createdAt: Timestamp(date: Date.now),
+                    updatedAt: Timestamp(date: Date.now)
                 )
             }
             
@@ -151,7 +162,7 @@ class SlideBusinessManager: ObservableObject {
     }
     
     /// Fetch all businesses
-    func fetchAllBusinesses() async throws {
+    func fetchAllBusinesses() async throws -> [SlideBusiness] {
         isLoading = true
         errorMessage = nil
         
@@ -163,12 +174,13 @@ class SlideBusinessManager: ObservableObject {
             
             businesses = fetchedBusinesses
             print("Fetched \(businesses.count) businesses")
+            isLoading = false
+            return fetchedBusinesses
         } catch {
             errorMessage = "Failed to fetch businesses: \(error.localizedDescription)"
+            isLoading = false
             throw error
         }
-        
-        isLoading = false
     }
     
     // MARK: - Real-time Listeners
@@ -197,12 +209,6 @@ class SlideBusinessManager: ObservableObject {
                 }
             }
         }
-    }
-    
-    /// Stop listening for real-time updates
-    func stopListening() {
-        listener?.remove()
-        listener = nil
     }
     
     // MARK: - Query Operations
@@ -351,7 +357,9 @@ class SlideBusinessManager: ObservableObject {
                     allowsDogs: business.allowsDogs,
                     googleMapsLinks: business.googleMapsLinks,
                     reviewSummary: business.reviewSummary,
-                    postalAddress: business.postalAddress
+                    postalAddress: business.postalAddress,
+                    createdAt: Timestamp(date: Date.now),
+                    updatedAt: Timestamp(date: Date.now)
                 )
             }
             
@@ -385,7 +393,8 @@ class SlideBusinessManager: ObservableObject {
     }
     
     deinit {
-        stopListening()
+        listener?.remove()
+        listener = nil
     }
 }
 

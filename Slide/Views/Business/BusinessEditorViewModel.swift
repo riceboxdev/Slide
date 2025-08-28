@@ -1,22 +1,41 @@
+//
+//  BusinessEditorViewModel.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/25/25.
+//
+
+
 import SwiftUI
 import FirebaseFirestore
 import PhotosUI
+import Combine
 
 // MARK: - Business Editor View Model
 @MainActor
 class BusinessEditorViewModel: ObservableObject {
     @Published var business: SlideBusiness
+    @Published var heroVideo: VideoItem?
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var isAdvancedMode = false
+    @Published var showingVideoPicker = false
     @Published var selectedProfilePhoto: PhotosPickerItem?
     @Published var selectedBannerPhoto: PhotosPickerItem?
+    
+    private var imageLoader: FirebaseImageManager = .init()
+    private var videoUploader: VideoUploadService = .init()
+    private var videoDownloader: VideoRetrievalService = .init()
     
     private let db = Firestore.firestore()
     private var debounceTimer: Timer?
     
     init(business: SlideBusiness) {
         self.business = business
+    }
+    
+    func initialize() {
+        loadVideo()
     }
     
     // MARK: - Save to Firestore
@@ -39,7 +58,94 @@ class BusinessEditorViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Photo Upload Methods
+    // MARK: - Video Methods
+    func loadVideo() {
+        guard let videoRef = business.videoReference else { return }
+        
+        videoDownloader.fetchVideo(by: videoRef) { [weak self] video in
+            DispatchQueue.main.async {
+                self?.heroVideo = video
+            }
+        }
+    }
+    
+    func uploadVideo(with pickerItem: PhotosPickerItem?) {
+        guard let pickerItem = pickerItem else {
+            errorMessage = "No video selected"
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                // Try to load as URL first (more efficient for large videos)
+                if let videoURL = try await pickerItem.loadTransferable(type: URL.self) {
+                    await MainActor.run {
+                        self.uploadVideoFromURL(videoURL)
+                    }
+                } else {
+                    // Fallback to loading as Data
+                    guard let videoData = try await pickerItem.loadTransferable(type: Data.self) else {
+                        await MainActor.run {
+                            self.errorMessage = "Could not load video data"
+                            self.isLoading = false
+                        }
+                        return
+                    }
+                    
+                    // Create a temporary file URL
+                    let tempDirectory = FileManager.default.temporaryDirectory
+                    let tempFileName = UUID().uuidString + ".mp4"
+                    let tempURL = tempDirectory.appendingPathComponent(tempFileName)
+                    
+                    // Write data to temporary file
+                    try videoData.write(to: tempURL)
+                    
+                    await MainActor.run {
+                        self.uploadVideoFromURL(tempURL, shouldCleanup: true)
+                    }
+                }
+                
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Error processing video: \(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func uploadVideoFromURL(_ url: URL, shouldCleanup: Bool = false) {
+        videoUploader.uploadVideo(
+            videoURL: url,
+            title: business.displayName?.text ?? "Business Video"
+        ) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                
+                // Clean up temporary file if needed
+                if shouldCleanup {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                
+                switch result {
+                case .success(let videoItem):
+                    self.heroVideo = videoItem
+                    self.business.videoReference = videoItem.id
+                    self.saveToFirestore()
+                    
+                case .failure(let error):
+                    self.errorMessage = "Upload failed: \(error.localizedDescription)"
+                }
+                
+                self.isLoading = false
+            }
+        }
+    }
+    
+    // MARK: - Photo Upload Methods (unchanged)
     func uploadProfilePhoto() {
         guard let selectedItem = selectedProfilePhoto else { return }
         
@@ -77,20 +183,18 @@ class BusinessEditorViewModel: ObservableObject {
     }
     
     private func uploadPhoto(_ image: UIImage, type: PhotoType) async {
-        // Assuming you have a photo upload service
-        // Replace with your actual photo upload implementation
         isLoading = true
         defer { isLoading = false }
         
         do {
-            // Mock upload - replace with actual implementation
-            let photoURL = "https://example.com/photo_\(UUID().uuidString).jpg"
+            let metaData = try await imageLoader.uploadImageAsync(image)
+            let photoId = metaData.id
             
             switch type {
             case .profile:
-                business.profilePhoto = photoURL
+                business.profilePhoto = photoId
             case .banner:
-                business.bannerPhoto = photoURL
+                business.bannerPhoto = photoId
             }
             
             saveToFirestore()
@@ -109,6 +213,8 @@ struct BusinessEditorView: View {
     @StateObject private var viewModel: BusinessEditorViewModel
     @Environment(\.dismiss) private var dismiss
     
+    @State private var selectedVideo: PhotosPickerItem? = nil
+    
     init(business: SlideBusiness) {
         self._viewModel = StateObject(wrappedValue: BusinessEditorViewModel(business: business))
     }
@@ -122,6 +228,9 @@ struct BusinessEditorView: View {
                     
                     // Photo sections
                     photoSection
+                    
+                    // Video Section
+                    videoSection
                     
                     // Basic Information (always visible)
                     basicInfoSection
@@ -143,6 +252,9 @@ struct BusinessEditorView: View {
                 }
                 .padding()
             }
+            .onAppear() {
+                
+            }
             .navigationTitle("Edit Business")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -158,6 +270,12 @@ struct BusinessEditorView: View {
                 }
             } message: {
                 Text(viewModel.errorMessage ?? "")
+            }
+            .onChange(of: selectedVideo) { newValue in
+                if let item = newValue {
+                    viewModel.uploadVideo(with: item)
+                    selectedVideo = nil
+                }
             }
         }
     }
@@ -185,7 +303,7 @@ struct BusinessEditorView: View {
             }
         }
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color(.systemGray6), in: .capsule)
         .cornerRadius(12)
     }
     
@@ -199,7 +317,7 @@ struct BusinessEditorView: View {
                 // Profile Photo
                 VStack {
                     PhotosPicker(selection: $viewModel.selectedProfilePhoto, matching: .images) {
-                        AsyncImage(url: URL(string: viewModel.business.profilePhoto ?? "")) { image in
+                        AsyncImageWithColor(imageRef: viewModel.business.profilePhoto ?? "", imageMetaData: .constant(nil)) { image in
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
@@ -224,7 +342,7 @@ struct BusinessEditorView: View {
                 // Banner Photo
                 VStack {
                     PhotosPicker(selection: $viewModel.selectedBannerPhoto, matching: .images) {
-                        AsyncImage(url: URL(string: viewModel.business.bannerPhoto ?? "")) { image in
+                        AsyncImageWithColor(imageRef: viewModel.business.bannerPhoto ?? "", imageMetaData: .constant(nil)) { image in
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
@@ -253,6 +371,71 @@ struct BusinessEditorView: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(radius: 2)
+    }
+    
+    private var videoSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Video")
+                .font(.headline)
+            
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(.quinary)
+                    if let loadedVideo = viewModel.heroVideo {
+                        AsyncImageWithColor(imageRef: loadedVideo.thumbnailURL?.absoluteString ?? "", imageMetaData: .constant(nil)) { image in
+                            image
+                                .resizable()
+                        } placeholder: {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.secondary)
+                                .aspectRatio(9/16, contentMode: .fit)
+                        }
+                    } else {
+                        PhotosPicker(selection: $selectedVideo, matching: .videos) {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            .black.opacity(0.5),
+                                            .gray.opacity(0.2)
+                                        ],
+                                        startPoint: .bottom,
+                                        endPoint: .top
+                                    )
+                                )
+                                .aspectRatio(9/16, contentMode: .fit)
+                                .overlay {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(.clear)
+                                            .stroke(Color.gray.opacity(0.2), lineWidth: 2)
+                                        Image(systemName: "arrow.up.circle.fill")
+                                            .symbolRenderingMode(.hierarchical)
+                                            .imageScale(.large)
+                                            .foregroundStyle(.accent)
+                                    }
+                                }
+                        }
+                        .padding()
+                    }
+                }
+                
+                VStack {
+                    Text("Upload a vertical video to showcase your business".uppercased())
+                        .multilineTextAlignment(.center)
+                        .font(.variableFont(12, axis: [FontVariations.weight.rawValue: 400]))
+                    
+                    Image(systemName: "iphone.gen2")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 60)
+                        .padding(.vertical)
+                }
+                .padding(8)
+            }
+            .frame(height: 180)
+        }
     }
     
     // MARK: - Basic Info Section
@@ -337,17 +520,17 @@ struct BusinessEditorView: View {
             Text("Hours")
                 .font(.headline)
             
-            // Note: This is a simplified implementation
-            // You'll need to implement proper opening hours editing based on your OpeningHours structure
-            Text("Regular Hours")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            OpeningHoursEditor(
+                title: "Regular Hours",
+                openingHours: $viewModel.business.regularOpeningHours,
+                onSave: { viewModel.saveToFirestore() }
+            )
             
-            Text("Current Hours")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            // Add your opening hours editing components here
+            OpeningHoursEditor(
+                title: "Current Hours",
+                openingHours: $viewModel.business.currentOpeningHours,
+                onSave: { viewModel.saveToFirestore() }
+            )
         }
         .padding()
         .background(Color(.systemBackground))
@@ -480,6 +663,16 @@ struct BusinessEditorView: View {
                     set: { viewModel.business.allowsDogs = $0; viewModel.saveToFirestore() }
                 ))
             }
+            
+            Divider()
+            
+            // Accessibility Options
+            AccessibilityOptionsEditor(
+                accessibilityOptions: Binding(
+                    get: { viewModel.business.accessibilityOptions ?? AccessibilityOptions() },
+                    set: { viewModel.business.accessibilityOptions = $0; viewModel.saveToFirestore() }
+                )
+            )
         }
         .padding()
         .background(Color(.systemBackground))
@@ -489,7 +682,7 @@ struct BusinessEditorView: View {
     
     // MARK: - Payment & Parking Section (Advanced Mode)
     private var paymentParkingSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             Text("Payment & Parking")
                 .font(.headline)
             
@@ -505,22 +698,33 @@ struct BusinessEditorView: View {
                 )) {
                     Text("Not specified").tag("")
                     Text("$ (Inexpensive)").tag("PRICE_LEVEL_INEXPENSIVE")
-                    Text("$$ (Moderate)").tag("PRICE_LEVEL_MODERATE")
-                    Text("$$$ (Expensive)").tag("PRICE_LEVEL_EXPENSIVE")
-                    Text("$$$$ (Very Expensive)").tag("PRICE_LEVEL_VERY_EXPENSIVE")
+                    Text("$ (Moderate)").tag("PRICE_LEVEL_MODERATE")
+                    Text("$$ (Expensive)").tag("PRICE_LEVEL_EXPENSIVE")
+                    Text("$$ (Very Expensive)").tag("PRICE_LEVEL_VERY_EXPENSIVE")
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
-            // Note: PaymentOptions and ParkingOptions would need custom UI based on their structure
-            Text("Payment Options")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            Divider()
             
-            Text("Parking Options")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            // Payment Options
+            PaymentOptionsEditor(
+                paymentOptions: Binding(
+                    get: { viewModel.business.paymentOptions ?? PaymentOptions() },
+                    set: { viewModel.business.paymentOptions = $0; viewModel.saveToFirestore() }
+                )
+            )
+            
+            Divider()
+            
+            // Parking Options
+            ParkingOptionsEditor(
+                parkingOptions: Binding(
+                    get: { viewModel.business.parkingOptions ?? ParkingOptions() },
+                    set: { viewModel.business.parkingOptions = $0; viewModel.saveToFirestore() }
+                )
+            )
         }
         .padding()
         .background(Color(.systemBackground))
@@ -530,23 +734,417 @@ struct BusinessEditorView: View {
     
     // MARK: - Fuel & EV Section (Advanced Mode)
     private var fuelEvSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             Text("Fuel & EV Charging")
                 .font(.headline)
             
-            // Note: FuelOptions and EVChargeOptions would need custom UI based on their structure
-            Text("Fuel Options")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            // Fuel Options
+            FuelOptionsEditor(
+                fuelOptions: Binding(
+                    get: { viewModel.business.fuelOptions ?? FuelOptions(fuelTypes: nil) },
+                    set: { viewModel.business.fuelOptions = $0; viewModel.saveToFirestore() }
+                )
+            )
             
-            Text("EV Charging Options")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            Divider()
+            
+            // EV Charging Options
+            EVChargeOptionsEditor(
+                evChargeOptions: Binding(
+                    get: { viewModel.business.evChargeOptions ?? EVChargeOptions(connectorCount: nil, connectorAggregation: nil) },
+                    set: { viewModel.business.evChargeOptions = $0; viewModel.saveToFirestore() }
+                )
+            )
         }
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(radius: 2)
+    }
+}
+
+// MARK: - Opening Hours Editor
+struct OpeningHoursEditor: View {
+    let title: String
+    @Binding var openingHours: OpeningHours?
+    let onSave: () -> Void
+    
+    @State private var periods: [Period] = []
+    @State private var openNow: Bool = false
+    
+    private let daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                Button(openingHours == nil ? "Add Hours" : "Edit Hours") {
+                    initializeHours()
+                }
+                .font(.caption)
+                .foregroundColor(.blue)
+            }
+            
+            if openingHours != nil {
+                Toggle("Currently Open", isOn: Binding(
+                    get: { openingHours?.openNow ?? false },
+                    set: { newValue in
+                        if openingHours == nil {
+                            openingHours = OpeningHours(openNow: newValue, periods: nil, weekdayDescriptions: nil)
+                        } else {
+                            openingHours?.openNow = newValue
+                        }
+                        onSave()
+                    }
+                ))
+                .toggleStyle(SwitchToggleStyle())
+                
+                if let descriptions = openingHours?.weekdayDescriptions {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(descriptions.enumerated()), id: \.offset) { index, description in
+                            Text("\(daysOfWeek[safe: index] ?? "Day \(index + 1)"): \(description)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func initializeHours() {
+        if openingHours == nil {
+            openingHours = OpeningHours(openNow: false, periods: [], weekdayDescriptions: [])
+        }
+        onSave()
+    }
+}
+
+// MARK: - Payment Options Editor
+struct PaymentOptionsEditor: View {
+    @Binding var paymentOptions: PaymentOptions
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Payment Options")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
+                ToggleRow(title: "Credit Cards", isOn: Binding(
+                    get: { paymentOptions.acceptsCreditCards ?? false },
+                    set: { paymentOptions.acceptsCreditCards = $0 }
+                ))
+                
+                ToggleRow(title: "Debit Cards", isOn: Binding(
+                    get: { paymentOptions.acceptsDebitCards ?? false },
+                    set: { paymentOptions.acceptsDebitCards = $0 }
+                ))
+                
+                ToggleRow(title: "Cash Only", isOn: Binding(
+                    get: { paymentOptions.acceptsCashOnly ?? false },
+                    set: { paymentOptions.acceptsCashOnly = $0 }
+                ))
+                
+                ToggleRow(title: "NFC/Contactless", isOn: Binding(
+                    get: { paymentOptions.acceptsNfc ?? false },
+                    set: { paymentOptions.acceptsNfc = $0 }
+                ))
+            }
+        }
+    }
+}
+
+// MARK: - Parking Options Editor
+struct ParkingOptionsEditor: View {
+    @Binding var parkingOptions: ParkingOptions
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Parking Options")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Paid Parking")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 6) {
+                    ToggleRow(title: "Garage", isOn: Binding(
+                        get: { parkingOptions.paidGarageParking ?? false },
+                        set: { parkingOptions.paidGarageParking = $0 }
+                    ))
+                    
+                    ToggleRow(title: "Lot", isOn: Binding(
+                        get: { parkingOptions.paidLotParking ?? false },
+                        set: { parkingOptions.paidLotParking = $0 }
+                    ))
+                    
+                    ToggleRow(title: "Street", isOn: Binding(
+                        get: { parkingOptions.paidStreetParking ?? false },
+                        set: { parkingOptions.paidStreetParking = $0 }
+                    ))
+                    
+                    ToggleRow(title: "Valet", isOn: Binding(
+                        get: { parkingOptions.valetParking ?? false },
+                        set: { parkingOptions.valetParking = $0 }
+                    ))
+                }
+                
+                Divider().padding(.vertical, 4)
+                
+                Text("Free Parking")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 6) {
+                    ToggleRow(title: "Garage", isOn: Binding(
+                        get: { parkingOptions.freeGarageParking ?? false },
+                        set: { parkingOptions.freeGarageParking = $0 }
+                    ))
+                    
+                    ToggleRow(title: "Lot", isOn: Binding(
+                        get: { parkingOptions.freeLotParking ?? false },
+                        set: { parkingOptions.freeLotParking = $0 }
+                    ))
+                    
+                    ToggleRow(title: "Street", isOn: Binding(
+                        get: { parkingOptions.freeStreetParking ?? false },
+                        set: { parkingOptions.freeStreetParking = $0 }
+                    ))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Accessibility Options Editor
+struct AccessibilityOptionsEditor: View {
+    @Binding var accessibilityOptions: AccessibilityOptions
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Wheelchair Accessibility")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
+                ToggleRow(title: "Accessible Parking", isOn: Binding(
+                    get: { accessibilityOptions.wheelchairAccessibleParking ?? false },
+                    set: { accessibilityOptions.wheelchairAccessibleParking = $0 }
+                ))
+                
+                ToggleRow(title: "Accessible Entrance", isOn: Binding(
+                    get: { accessibilityOptions.wheelchairAccessibleEntrance ?? false },
+                    set: { accessibilityOptions.wheelchairAccessibleEntrance = $0 }
+                ))
+                
+                ToggleRow(title: "Accessible Restroom", isOn: Binding(
+                    get: { accessibilityOptions.wheelchairAccessibleRestroom ?? false },
+                    set: { accessibilityOptions.wheelchairAccessibleRestroom = $0 }
+                ))
+                
+                ToggleRow(title: "Accessible Seating", isOn: Binding(
+                    get: { accessibilityOptions.wheelchairAccessibleSeating ?? false },
+                    set: { accessibilityOptions.wheelchairAccessibleSeating = $0 }
+                ))
+            }
+        }
+    }
+}
+
+// MARK: - Fuel Options Editor
+struct FuelOptionsEditor: View {
+    @Binding var fuelOptions: FuelOptions
+    @State private var selectedFuelTypes: Set<String> = []
+    
+    private let availableFuelTypes = [
+        "DIESEL", "REGULAR_UNLEADED", "MIDGRADE", "PREMIUM", "SP91", "SP91_E10", "SP92", "SP95", "SP95_E10", "SP98", "SP99", "SP100", "LPG", "E85", "TRUCK_DIESEL"
+    ]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Fuel Types Available")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 6) {
+                ForEach(availableFuelTypes, id: \.self) { fuelType in
+                    HStack {
+                        Text(fuelType.replacingOccurrences(of: "_", with: " ").capitalized)
+                            .font(.caption)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { fuelOptions.fuelTypes?.contains(fuelType) ?? false },
+                            set: { isSelected in
+                                var currentTypes = fuelOptions.fuelTypes ?? []
+                                if isSelected {
+                                    if !currentTypes.contains(fuelType) {
+                                        currentTypes.append(fuelType)
+                                    }
+                                } else {
+                                    currentTypes.removeAll { $0 == fuelType }
+                                }
+                                fuelOptions.fuelTypes = currentTypes.isEmpty ? nil : currentTypes
+                            }
+                        ))
+                        .labelsHidden()
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .onAppear {
+            selectedFuelTypes = Set(fuelOptions.fuelTypes ?? [])
+        }
+    }
+}
+
+// MARK: - EV Charge Options Editor
+struct EVChargeOptionsEditor: View {
+    @Binding var evChargeOptions: EVChargeOptions
+    @State private var connectorAggregations: [ConnectorAggregation] = []
+    
+    private let connectorTypes = ["OTHER", "J1772", "TYPE_2", "CHAdeMO", "CCS_COMBO_1", "CCS_COMBO_2", "TESLA", "UNSPECIFIED"]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("EV Charging Options")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            HStack {
+                Text("Total Connectors")
+                    .font(.caption)
+                Spacer()
+                TextField("Count", value: Binding(
+                    get: { evChargeOptions.connectorCount ?? 0 },
+                    set: { evChargeOptions.connectorCount = $0 == 0 ? nil : $0 }
+                ), format: .number)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(width: 80)
+                .keyboardType(.numberPad)
+            }
+            
+            if connectorAggregations.isEmpty {
+                Button("Add Connector Type") {
+                    addConnectorType()
+                }
+                .font(.caption)
+                .foregroundColor(.blue)
+            } else {
+                ForEach(Array(connectorAggregations.enumerated()), id: \.offset) { index, connector in
+                    ConnectorRow(
+                        connector: Binding(
+                            get: { connectorAggregations[index] },
+                            set: { connectorAggregations[index] = $0; updateConnectors() }
+                        ),
+                        availableTypes: connectorTypes,
+                        onDelete: { removeConnectorType(at: index) }
+                    )
+                }
+                
+                Button("Add Another Connector") {
+                    addConnectorType()
+                }
+                .font(.caption)
+                .foregroundColor(.blue)
+            }
+        }
+        .onAppear {
+            connectorAggregations = evChargeOptions.connectorAggregation ?? []
+        }
+    }
+    
+    private func addConnectorType() {
+        connectorAggregations.append(ConnectorAggregation(type: nil, maxChargeRateKw: nil, count: nil))
+        updateConnectors()
+    }
+    
+    private func removeConnectorType(at index: Int) {
+        connectorAggregations.remove(at: index)
+        updateConnectors()
+    }
+    
+    private func updateConnectors() {
+        evChargeOptions.connectorAggregation = connectorAggregations.isEmpty ? nil : connectorAggregations
+    }
+}
+
+// MARK: - Connector Row
+struct ConnectorRow: View {
+    @Binding var connector: ConnectorAggregation
+    let availableTypes: [String]
+    let onDelete: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("Type", selection: Binding(
+                    get: { connector.type ?? "OTHER" },
+                    set: { connector.type = $0 }
+                )) {
+                    ForEach(availableTypes, id: \.self) { type in
+                        Text(type.replacingOccurrences(of: "_", with: " ")).tag(type)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+                
+                Spacer()
+                
+                Button("Remove") {
+                    onDelete()
+                }
+                .font(.caption)
+                .foregroundColor(.red)
+            }
+            
+            HStack(spacing: 12) {
+                VStack(alignment: .leading) {
+                    Text("Count")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    TextField("0", value: Binding(
+                        get: { connector.count ?? 0 },
+                        set: { connector.count = $0 == 0 ? nil : $0 }
+                    ), format: .number)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .keyboardType(.numberPad)
+                    .frame(width: 60)
+                }
+                
+                VStack(alignment: .leading) {
+                    Text("Max kW")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    TextField("0.0", value: Binding(
+                        get: { connector.maxChargeRateKw ?? 0.0 },
+                        set: { connector.maxChargeRateKw = $0 == 0.0 ? nil : $0 }
+                    ), format: .number)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .keyboardType(.decimalPad)
+                    .frame(width: 80)
+                }
+                
+                Spacer()
+            }
+        }
+        .padding(8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - Array Extension for Safe Access
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -570,14 +1168,17 @@ struct ToggleRow: View {
 // MARK: - Preview
 struct BusinessEditorView_Previews: PreviewProvider {
     static var previews: some View {
-        let sampleBusiness = SlideBusiness(
-            id: "sample-id",
-            displayName: DisplayName(text: "Sample Business", languageCode: "en"),
-            formattedAddress: "123 Main St, City, State",
-            createdAt: Timestamp(),
-            updatedAt: Timestamp()
-        )
-        
-        BusinessEditorView(business: sampleBusiness)
+        if let business = createSampleBusiness() {
+            BusinessEditorView(business: business)
+        }
+    }
+    
+    static func createSampleBusiness() -> SlideBusiness? {
+        let samplePlace = createPlaceDetailsFromJSON()
+        if let business = samplePlace, let convertedPlace = convertPlaceToSlideBusiness(place: business) {
+            return convertedPlace
+        }
+        return nil
     }
 }
+

@@ -1,5 +1,15 @@
+//
+//  CreatePostView.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/26/25.
+//
+
+
 import SwiftUI
 import PhotosUI
+import Combine
+import FirebaseFirestore
 
 // MARK: - Create Post View
 
@@ -97,6 +107,8 @@ struct BusinessHeaderView: View {
 
 struct PostFormView: View {
     @ObservedObject var viewModel: CreatePostViewModel
+    @FocusState private var titleFocused: Bool
+    @FocusState private var contentFocused: Bool
     
     var body: some View {
         VStack(spacing: 16) {
@@ -129,7 +141,7 @@ struct PostFormView: View {
                 
                 TextField("Enter post title...", text: $viewModel.title)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .focused($viewModel.titleFocused)
+                    .focused($titleFocused)
             }
             
             // Content Field
@@ -143,7 +155,7 @@ struct PostFormView: View {
                     .padding(8)
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
-                    .focused($viewModel.contentFocused)
+                    .focused($contentFocused)
                 
                 Text("\(viewModel.content.count) characters")
                     .font(.caption)
@@ -509,9 +521,6 @@ class CreatePostViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var showError = false
     @Published var errorMessage = ""
-    
-    @FocusState var titleFocused: Bool
-    @FocusState var contentFocused: Bool
     
     private let postService: BusinessPostService
     

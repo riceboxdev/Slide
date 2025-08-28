@@ -15,105 +15,115 @@ import _MapKit_SwiftUI
 
 // MARK: - Main Detail View
 struct FullPlaceDetailView: View {
-    let place: PlaceDetailsResponse
+    let place: PlaceDetailsResponse?
     
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                // Header Section
-                PlaceHeaderView(place: place)
-                
-                // Basic Information
-                if hasBasicInfo {
-                    PlaceBasicInfoView(place: place)
+        Group {
+            if let place = place {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        // Header Section
+                        PlaceHeaderView(place: place)
+                        
+                        // Basic Information
+                        if hasBasicInfo {
+                            PlaceBasicInfoView(place: place)
+                        }
+                        
+                        // Contact Information
+                        if hasContactInfo {
+                            PlaceContactInfoView(place: place)
+                        }
+                        
+                        // Hours & Status
+                        if hasHoursInfo {
+                            PlaceHoursView(place: place)
+                        }
+                        
+                        // Services & Amenities
+                        if hasServicesInfo {
+                            PlaceServicesView(place: place)
+                        }
+                        
+                        // Accessibility & Parking
+                        if hasAccessibilityInfo {
+                            PlaceAccessibilityView(place: place)
+                        }
+                        
+                        // Payment & Fuel Options
+                        if hasPaymentInfo {
+                            PlacePaymentOptionsView(place: place)
+                        }
+                        
+                        // Reviews Section
+                        if let reviews = place.reviews, !reviews.isEmpty {
+                            PlaceReviewsView(reviews: reviews)
+                        }
+                        
+                        // Photos Section
+                        if let photos = place.photos, !photos.isEmpty {
+                            PlacePhotosView(photos: photos)
+                        }
+                        
+                        // Location & Address Details
+                        if hasLocationInfo {
+                            PlaceLocationView(place: place)
+                        }
+                    }
+                    .padding()
                 }
-                
-                // Contact Information
-                if hasContactInfo {
-                    PlaceContactInfoView(place: place)
-                }
-                
-                // Hours & Status
-                if hasHoursInfo {
-                    PlaceHoursView(place: place)
-                }
-                
-                // Services & Amenities
-                if hasServicesInfo {
-                    PlaceServicesView(place: place)
-                }
-                
-                // Accessibility & Parking
-                if hasAccessibilityInfo {
-                    PlaceAccessibilityView(place: place)
-                }
-                
-                // Payment & Fuel Options
-                if hasPaymentInfo {
-                    PlacePaymentOptionsView(place: place)
-                }
-                
-                // Reviews Section
-                if let reviews = place.reviews, !reviews.isEmpty {
-                    PlaceReviewsView(reviews: reviews)
-                }
-                
-                // Photos Section
-                if let photos = place.photos, !photos.isEmpty {
-                    PlacePhotosView(photos: photos)
-                }
-                
-                // Location & Address Details
-                if hasLocationInfo {
-                    PlaceLocationView(place: place)
-                }
+                .navigationTitle(place.displayName?.text ?? place.name ?? "Place Details")
+                .navigationBarTitleDisplayMode(.large)
+            } else {
+                Text("No Details To Show".uppercased())
+                    .font(.callout)
+                    .fontDesign(.monospaced)
+                    .bold()
+                    .foregroundStyle(.secondary)
             }
-            .padding()
         }
-        .navigationTitle(place.displayName?.text ?? place.name ?? "Place Details")
-        .navigationBarTitleDisplayMode(.large)
     }
     
     // MARK: - Computed Properties for Conditional Sections
     private var hasBasicInfo: Bool {
-        place.rating != nil || place.userRatingCount != nil ||
-        place.priceLevel != nil || place.primaryType != nil ||
-        place.editorialSummary != nil || place.generativeSummary != nil
+        place?.rating != nil || place?.userRatingCount != nil ||
+        place?.priceLevel != nil || place?.primaryType != nil ||
+        place?.editorialSummary != nil || place?.generativeSummary != nil
     }
     
     private var hasContactInfo: Bool {
-        place.nationalPhoneNumber != nil || place.internationalPhoneNumber != nil ||
-        place.websiteUri != nil || place.googleMapsUri != nil
+        place?.nationalPhoneNumber != nil || place?.internationalPhoneNumber != nil ||
+        place?.websiteUri != nil || place?.googleMapsUri != nil
     }
     
     private var hasHoursInfo: Bool {
-        place.regularOpeningHours != nil || place.currentOpeningHours != nil ||
-        place.businessStatus != nil
+        place?.regularOpeningHours != nil || place?.currentOpeningHours != nil ||
+        place?.businessStatus != nil
     }
     
     private var hasServicesInfo: Bool {
-        place.takeout == true || place.delivery == true || place.dineIn == true ||
-        place.curbsidePickup == true || place.reservable == true ||
-        place.servesBreakfast == true || place.servesLunch == true ||
-        place.servesDinner == true || place.servesBrunch == true ||
-        place.servesVegetarianFood == true || place.servesBeer == true ||
-        place.servesWine == true
+        place?.takeout == true || place?.delivery == true || place?.dineIn == true ||
+        place?.curbsidePickup == true || place?.reservable == true ||
+        place?.servesBreakfast == true || place?.servesLunch == true ||
+        place?.servesDinner == true || place?.servesBrunch == true ||
+        place?.servesVegetarianFood == true || place?.servesBeer == true ||
+        place?.servesWine == true
     }
     
     private var hasAccessibilityInfo: Bool {
-        place.accessibilityOptions != nil || place.parkingOptions != nil ||
-        place.goodForChildren == true || place.goodForGroups == true ||
-        place.allowsDogs == true || place.outdoorSeating == true ||
-        place.liveMusic == true || place.restroom == true
+        place?.accessibilityOptions != nil || place?.parkingOptions != nil ||
+        place?.goodForChildren == true || place?.goodForGroups == true ||
+        place?.allowsDogs == true || place?.outdoorSeating == true ||
+        place?.liveMusic == true || place?.restroom == true
     }
     
     private var hasPaymentInfo: Bool {
-        place.paymentOptions != nil || place.fuelOptions != nil || place.evChargeOptions != nil
+        place?.paymentOptions != nil || place?.fuelOptions != nil || place?.evChargeOptions != nil
     }
     
     private var hasLocationInfo: Bool {
-        place.location != nil || place.formattedAddress != nil ||
-        place.addressComponents != nil || place.plusCode != nil
+        place?.location != nil || place?.formattedAddress != nil ||
+        place?.addressComponents != nil || place?.plusCode != nil
     }
 }
 

@@ -1,337 +1,655 @@
+//
+//  VideoItem.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/25/25.
+//
+
 import SwiftUI
 import AVFoundation
-import AVKit
 import Combine
+import UIKit
+import AVKit
+import swiftui_loop_videoplayer
 
-// MARK: - Model
-
+// MARK: - Video Item Model
 struct VideoItem: Identifiable, Hashable {
-    let id: UUID = .init()
+    let id: String // Changed from UUID() to String for Firestore compatibility
     let url: URL
-    let posterURL: URL?
+    let thumbnailURL: URL?
     let title: String
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
-// MARK: - Player Pool
-
-/// A small pool of reusable AVPlayer instances to avoid cold starts per cell.
-final class PlayerPool {
-    static let shared = PlayerPool()
-
-    private let maxPlayers = 4 // tune for your feed style (1 playing, 1 prev, 1 next, + spare)
-    private var players: [AVPlayer] = []
-    private var playerInUse = Set<ObjectIdentifier>()
-
-    private init() {
-        players = (0..<maxPlayers).map { _ in
-            let p = AVPlayer()
-            p.automaticallyWaitsToMinimizeStalling = true
-            return p
+// MARK: - Player Pool Manager
+class VideoPlayerPool: ObservableObject {
+    private var availablePlayers: [AVPlayer] = []
+    private var activePlayers: [String: AVPlayer] = [:]
+    private let maxPoolSize = 5
+    
+    init() {
+        for _ in 0..<maxPoolSize {
+            let player = AVPlayer()
+            player.actionAtItemEnd = .none
+            availablePlayers.append(player)
         }
     }
-
-    /// Acquire a player (reuse if possible). You must call `release(_:)` when done.
-    func acquire() -> AVPlayer {
-        if let idx = players.firstIndex(where: { !playerInUse.contains(ObjectIdentifier($0)) }) {
-            let p = players[idx]
-            playerInUse.insert(ObjectIdentifier(p))
-            return p
-        } else {
-            // Pool exhausted: create a temporary player (will not be pooled on release)
-            let p = AVPlayer()
-            p.automaticallyWaitsToMinimizeStalling = true
-            playerInUse.insert(ObjectIdentifier(p))
-            return p
+    
+    func getPlayer(for videoId: String, url: URL) -> AVPlayer {
+        if let existingPlayer = activePlayers[videoId] {
+            return existingPlayer
         }
+        
+        let player = availablePlayers.popLast() ?? {
+            let newPlayer = AVPlayer()
+            newPlayer.actionAtItemEnd = .none
+            return newPlayer
+        }()
+        
+        let playerItem = AVPlayerItem(url: url)
+        playerItem.preferredForwardBufferDuration = 2.0
+        player.replaceCurrentItem(with: playerItem)
+        
+        activePlayers[videoId] = player
+        
+        return player
     }
-
-    func release(_ player: AVPlayer) {
+    
+    func releasePlayer(for videoId: String) {
+        guard let player = activePlayers.removeValue(forKey: videoId) else { return }
+        
         player.pause()
         player.replaceCurrentItem(with: nil)
-        player.seek(to: .zero)
-        player.rate = 0
-        player.actionAtItemEnd = .pause
-        playerInUse.remove(ObjectIdentifier(player))
-    }
-}
-
-// MARK: - Item Preheater
-
-/// Prepares AVPlayerItems ahead of time so `play()` feels instant.
-final class VideoPreheater {
-    static let shared = VideoPreheater()
-
-    private let cache = NSCache<NSURL, AVPlayerItem>()
-    private var inFlight = [NSURL: Task<AVPlayerItem, Never>]()
-    private let lock = NSLock()
-
-    func preheat(url: URL) {
-        let key = url as NSURL
-        lock.lock(); defer { lock.unlock() }
-        guard cache.object(forKey: key) == nil, inFlight[key] == nil else { return }
-        inFlight[key] = Task.detached(priority: .utility) { [weak self] in
-            let asset = AVURLAsset(url: url)
-            // Ask for keys we need before playback
-            let keys = ["playable", "hasProtectedContent", "duration"]
-            do {
-                try await asset.load(.isPlayable)
-                _ = try? await asset.loadValues(forKeys: keys)
-            } catch {
-                // swallow; item may still become playable later
-            }
-            let item = AVPlayerItem(asset: asset)
-            item.preferredForwardBufferDuration = 2 // seconds of buffer to aim for early
-            self?.lock.lock()
-            self?.cache.setObject(item, forKey: key)
-            self?.inFlight[key] = nil
-            self?.lock.unlock()
-            return item
+        
+        if availablePlayers.count < maxPoolSize {
+            availablePlayers.append(player)
         }
     }
-
-    func item(for url: URL) -> AVPlayerItem {
-        let key = url as NSURL
-        if let cached = cache.object(forKey: key) { return cached.copyIfNeeded() }
-        // Not cached: create lightweight item synchronously
-        let asset = AVURLAsset(url: url)
-        let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 2
-        cache.setObject(item, forKey: key)
-        return item
+    
+    func pauseAll() {
+        activePlayers.values.forEach { $0.pause() }
     }
 }
 
-private extension AVPlayerItem {
-    /// AVPlayerItem is not strictly copyable; this returns the same instance for simplicity.
-    /// If you need isolation per cell, construct a new item from the cached asset.
-    func copyIfNeeded() -> AVPlayerItem { self }
-}
-
-// MARK: - Visibility Tracking
-
-/// Reports how visible a view is within its scroll container (0...1).
-struct VisibilityReporter: ViewModifier {
-    let onChange: (CGFloat) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .background(GeometryReader { geo in
-                Color.clear.preference(key: VisibilityKey.self, value: geo)
-            })
-            .onPreferenceChange(VisibilityKey.self) { geo in
-                guard let scroll = geo?.frame(in: .named("scroll")) else { return }
-                guard let screen = geo?.frame(in: .global) else { return }
-                // Use the container named "scroll" if provided; fall back to global heuristics
-                let container = screen // fallback
-                let viewport = UIScreen.main.bounds
-                let intersection = scroll.intersection(viewport) ?? .null
-                let visibleArea = max(0, intersection.width * intersection.height)
-                let totalArea = max(1, scroll.width * scroll.height)
-                let ratio = CGFloat(min(1, max(0, visibleArea / totalArea)))
-                onChange(ratio)
-            }
+// MARK: - PlayerView class for optimized player display
+class PlayerView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    var player: AVPlayer? {
+        get { playerLayer.player }
+        set { playerLayer.player = newValue }
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer.frame = bounds
     }
 }
 
-private struct VisibilityKey: PreferenceKey {
-    static var defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = nextValue() }
-}
-
-extension View {
-    func reportVisibility(_ onChange: @escaping (CGFloat) -> Void) -> some View {
-        modifier(VisibilityReporter(onChange: onChange))
-    }
-}
-
-// MARK: - Player Layer Host (UIKit for speed)
-
-struct PlayerLayerView: UIViewRepresentable {
-    final class ContainerView: UIView {
-        override static var layerClass: AnyClass { AVPlayerLayer.self }
-        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-    }
-
+struct OptimizedVideoPlayer: UIViewRepresentable {
     let player: AVPlayer
-    var videoGravity: AVLayerVideoGravity = .resizeAspectFill
 
-    func makeUIView(context: Context) -> ContainerView {
-        let v = ContainerView()
-        v.playerLayer.player = player
-        v.playerLayer.videoGravity = videoGravity
-        v.isUserInteractionEnabled = false
-        return v
+    func makeUIView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        view.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        return view
     }
 
-    func updateUIView(_ uiView: ContainerView, context: Context) {
-        if uiView.playerLayer.player !== player {
-            uiView.playerLayer.player = player
-        }
-        uiView.playerLayer.videoGravity = videoGravity
+    func updateUIView(_ uiView: PlayerView, context: Context) {
+        uiView.player = player
+        uiView.playerLayer.videoGravity = .resizeAspectFill
     }
 }
 
-// MARK: - Video Cell
 
-struct VideoCellView: View {
+// MARK: - Video Preloader
+class VideoPreloader: ObservableObject {
+    private var preloadTasks: [String: URLSessionDataTask] = [:]
+    private var cache = NSCache<NSString, NSData>()
+    
+    init() {
+        cache.countLimit = 50 // Keep 50 videos cached
+        cache.totalCostLimit = 100 * 1024 * 1024 // 100MB cache
+    }
+    
+    func preloadVideo(for item: VideoItem) {
+        let key = item.url.absoluteString
+        
+        // Skip if already cached or being loaded
+        if cache.object(forKey: key as NSString) != nil || preloadTasks[key] != nil {
+            return
+        }
+        
+        let task = URLSession.shared.dataTask(with: item.url) { [weak self] data, response, error in
+            guard let data = data, error == nil else { return }
+            
+            DispatchQueue.main.async {
+                self?.cache.setObject(data as NSData, forKey: key as NSString)
+                self?.preloadTasks.removeValue(forKey: key)
+            }
+        }
+        
+        preloadTasks[key] = task
+        task.resume()
+    }
+    
+    func cancelPreload(for item: VideoItem) {
+        let key = item.url.absoluteString
+        preloadTasks[key]?.cancel()
+        preloadTasks.removeValue(forKey: key)
+    }
+}
+
+
+
+// MARK: - Video Cell with Smart Loading
+struct VideoCell: View {
     let item: VideoItem
-    @State private var player: AVPlayer? = nil
-    @State private var isReady = false
-    @State private var isActive = false // whether we want it playing
+    let isVisible: Bool
+    let showControls: Bool
+    /// If true, video will loop automatically when finished playing.
+    let isLooping: Bool
+    
+    let onVisibilityChange: (Bool) -> Void
+    @Binding var isMuted: Bool
+    
+    @EnvironmentObject private var playerPool: VideoPlayerPool
+    @State private var thumbnailImage: UIImage?
+    @State private var isPlayerReady = false
+    @State private var showControlsOverlay: Bool = false
+    @State private var player: AVPlayer?
     @State private var cancellables = Set<AnyCancellable>()
-
+    @State private var endObserver: Any? = nil
+    
+    init(item: VideoItem, isVisible: Bool, showControls: Bool = false, isMuted: Binding<Bool>, isLooping: Bool = true, onVisibilityChange: @escaping (Bool) -> Void) {
+        self.item = item
+        self.isVisible = isVisible
+        self.showControls = showControls
+        self._isMuted = isMuted
+        self.isLooping = isLooping
+        self.onVisibilityChange = onVisibilityChange
+    }
+    
     var body: some View {
-        ZStack {
-            if let player {
-                PlayerLayerView(player: player)
-                    .clipped()
-                    .onReceive(player.publisher(for: \._status)) { _ in }
-            } else {
-                Color.black.opacity(0.1)
-            }
-
-            // Poster image overlay until ready to show moving pixels
-            if !isReady, let poster = item.posterURL {
-                AsyncImage(url: poster) { phase in
-                    switch phase {
-                    case .success(let image): image.resizable().scaledToFill()
-                    default: Color.black.opacity(0.15)
-                    }
+        GeometryReader { geometry in
+            ZStack {
+                // Background color for loading state
+                Color.black
+                
+                // Thumbnail layer (shows immediately)
+                if let thumbnail = thumbnailImage {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .opacity(isPlayerReady && isVisible ? 0 : 1)
+                        .animation(.easeInOut(duration: 0.3), value: isPlayerReady && isVisible)
                 }
-                .transition(.opacity)
-            }
-
-            // Simple title badge for demo
-            VStack { Spacer() }
-        }
-        .frame(height: 420) // demo height; adapt to your layout
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(alignment: .bottomLeading) {
-            Text(item.title)
-                .font(.headline)
-                .padding(12)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding()
-        }
-        .onAppear(perform: prepare)
-        .onDisappear(perform: teardown)
-        .reportVisibility { ratio in
-            let shouldPlay = ratio > 0.6
-            setActive(shouldPlay)
-        }
-    }
-
-    private func prepare() {
-        // Acquire from pool and attach a preheated item
-        let p = PlayerPool.shared.acquire()
-        let item = VideoPreheater.shared.item(for: item.url)
-
-        // Observe ready-to-play
-        NotificationCenter.default.publisher(for: .AVPlayerItemNewAccessLogEntry, object: item)
-            .sink { _ in isReady = true }
-            .store(in: &cancellables)
-        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
-            .sink { _ in
-                // Loop
-                p.seek(to: .zero)
-                p.play()
-            }
-            .store(in: &cancellables)
-
-        p.replaceCurrentItem(with: item)
-        p.isMuted = true // unmute on tap if you want
-        p.actionAtItemEnd = .pause
-        player = p
-    }
-
-    private func teardown() {
-        cancellables.removeAll()
-        if let p = player { PlayerPool.shared.release(p) }
-        player = nil
-        isReady = false
-    }
-
-    private func setActive(_ play: Bool) {
-        guard let p = player else { return }
-        if play {
-            p.play()
-        } else {
-            p.pause()
-        }
-    }
-}
-
-// MARK: - Feed ViewModel
-
-final class FeedViewModel: ObservableObject {
-    @Published var items: [VideoItem] = []
-
-    func setItems(_ items: [VideoItem]) {
-        self.items = items
-    }
-
-    /// Call when a given index becomes dominant in the viewport to preheat neighbors
-    func preheatAround(index: Int, radius: Int = 2) {
-        guard !items.isEmpty else { return }
-        for offset in (-radius...radius) {
-            let idx = index + offset
-            guard idx >= 0 && idx < items.count else { continue }
-            VideoPreheater.shared.preheat(url: items[idx].url)
-        }
-    }
-}
-
-// MARK: - Feed Demo
-
-struct FeedDemoView: View {
-    @StateObject private var vm = FeedViewModel()
-    @State private var dominantIndex: Int = 0
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(Array(vm.items.enumerated()), id: \.[0]) { index, item in
-                    VideoCellView(item: item)
-                        .onAppear {
-                            dominantIndex = index
-                            vm.preheatAround(index: index)
+                
+                // Video player layer
+                if let player = player, isVisible {
+                    OptimizedVideoPlayer(player: player)
+                        .opacity(isPlayerReady ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.3), value: isPlayerReady)
+                        .onTapGesture {
+                            flashControls()
                         }
                 }
+                
+                // Loading indicator
+                if !isPlayerReady && thumbnailImage == nil {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.2)
+                }
+                
+               
             }
-            .padding(.vertical, 16)
         }
-        .coordinateSpace(name: "scroll")
+        .clipped()
+        .overlay(alignment: .bottomTrailing) {
+            if showControlsOverlay {
+                mediaControls()
+                    .transition(.blurReplace)
+                    .animation(.smooth, value: showControlsOverlay)
+            }
+        }
         .onAppear {
-            vm.setItems(Self.sampleItems)
-            // Kick off initial preheat
-            vm.preheatAround(index: 0)
+            print("VideoCell appeared for: \(item.title)")
+            loadThumbnail()
+            if isVisible {
+                setupPlayer()
+                flashControls()
+            }
+        }
+        .onDisappear {
+            print("VideoCell disappeared for: \(item.title)")
+            cleanupPlayer()
+        }
+        .onChange(of: isVisible) { oldValue, newValue in
+            print("Visibility changed for \(item.title): \(newValue)")
+            handleVisibilityChange(newValue)
+        }
+        .onChange(of: isMuted) { newMuted in
+            print("Muted state changed for \(item.title): \(newMuted)")
+            player?.isMuted = newMuted
+        }
+    }
+    
+    private func flashControls() {
+        Task {
+            withAnimation(.smooth) {
+                self.showControlsOverlay = true
+            }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            withAnimation(.smooth) {
+                self.showControlsOverlay = false
+            }
+        }
+    }
+    
+    @ViewBuilder
+    func mediaControls() -> some View {
+        let buttonSize: CGFloat = 30
+        Circle()
+            .fill(.clear)
+            .frame(width: buttonSize, height: buttonSize)
+            .overlay {
+                Image(systemName: isMuted ? "speaker.slash" : "speaker")
+                    .padding(6)
+            }
+            .glassEffect(.regular)
+            .padding()
+    }
+    
+    private func setupPlayer() {
+        print("Setting up player for: \(item.title)")
+        let newPlayer = playerPool.getPlayer(for: item.id, url: item.url)
+        newPlayer.isMuted = isMuted
+        self.player = newPlayer
+        
+        if isLooping, let playerItem = newPlayer.currentItem {
+            endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main) { _ in
+                newPlayer.seek(to: .zero)
+                newPlayer.play()
+            }
+        }
+        
+        // Monitor player status
+        newPlayer.publisher(for: \.currentItem?.status)
+            .receive(on: DispatchQueue.main)
+            .sink { status in
+                print("Player status for \(item.title): \(status?.rawValue ?? -1)")
+                if status == .readyToPlay {
+                    self.isPlayerReady = true
+                    if isVisible {
+                        newPlayer.play()
+                    }
+                } else if status == .failed {
+                    print("Player failed for \(item.title): \(newPlayer.currentItem?.error?.localizedDescription ?? "Unknown error")")
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func loadThumbnail() {
+        guard let thumbnailURL = item.thumbnailURL else {
+            print("No thumbnail URL for: \(item.title)")
+            return
+        }
+        
+        print("Loading thumbnail for: \(item.title) from: \(thumbnailURL)")
+        
+        URLSession.shared.dataTask(with: thumbnailURL) { data, response, error in
+            if let error = error {
+                print("Thumbnail load error for \(item.title): \(error.localizedDescription)")
+                return
+            }
+            
+            if let data = data, let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    print("Thumbnail loaded successfully for: \(item.title)")
+                    self.thumbnailImage = image
+                }
+            } else {
+                print("Failed to create image from data for: \(item.title)")
+            }
+        }.resume()
+    }
+    
+    private func handleVisibilityChange(_ visible: Bool) {
+        onVisibilityChange(visible)
+        
+        if visible {
+            if player == nil {
+                setupPlayer()
+            } else if isPlayerReady {
+                player?.play()
+            }
+        } else {
+            player?.pause()
+        }
+    }
+    
+    private func cleanupPlayer() {
+        cancellables.removeAll()
+        if let player = player {
+            player.pause()
+            playerPool.releasePlayer(for: item.id)
+            self.player = nil
+            self.isPlayerReady = false
+        }
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
         }
     }
 }
 
-// MARK: - Sample Data
-
-extension FeedDemoView {
-    static let sampleItems: [VideoItem] = [
-        VideoItem(url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.m3u8")!,
-                  posterURL: URL(string: "https://peach.blender.org/wp-content/uploads/bbb-splash.png")!,
-                  title: "Bunny"),
-        VideoItem(url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.m3u8")!,
-                  posterURL: URL(string: "https://orange.blender.org/wp-content/themes/orange/images/common/ed_head.jpg")!,
-                  title: "Dream"),
-        VideoItem(url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.m3u8")!,
-                  posterURL: URL(string: "https://durian.blender.org/wp-content/uploads/2010/05/sintel_poster.jpg")!,
-                  title: "Sintel"),
-        VideoItem(url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!,
-                  posterURL: nil,
-                  title: "BipBop")
-    ]
+// MARK: - Standalone Single Video Player
+struct SingleVideoPlayer: View {
+    let videoItem: VideoItem
+    let showControls: Bool
+    @Binding var isMuted: Bool
+    /// If true, video will loop automatically when finished playing.
+    let isLooping: Bool
+    
+    @StateObject private var playerPool = VideoPlayerPool()
+    @State private var isVideoVisible = true
+    
+    init(videoItem: VideoItem, showControls: Bool = true, isMuted: Binding<Bool>, isLooping: Bool = true) {
+        self.videoItem = videoItem
+        self.showControls = showControls
+        self._isMuted = isMuted
+        self.isLooping = isLooping
+    }
+    
+    var body: some View {
+        VideoCell(
+            item: videoItem,
+            isVisible: isVideoVisible,
+            showControls: showControls,
+            isMuted: $isMuted,
+            isLooping: isLooping
+        ) { isVisible in
+            // Handle visibility changes if needed
+            print("Video visibility: \(isVisible)")
+        }
+        .environmentObject(playerPool)
+        .onAppear {
+            isVideoVisible = true
+        }
+        .onDisappear {
+            isVideoVisible = false
+        }
+    }
 }
 
-// MARK: - Notes
-// 1) Use HLS (m3u8) with multiple bitrates. The preheater warms the asset & item so play() starts fast.
-// 2) PlayerPool avoids spinning up decoders for each cell.
-// 3) Visibility gating ensures only the mostly-visible cell plays to spare CPU/GPU.
-// 4) For production: consider AVAssetDownloadURLSession to offline/cache HLS for frequently viewed items.
-// 5) For sound-on: show a mute button and set requiresUserActionForAudio to true if you auto-play.
-// 6) Tune preferredForwardBufferDuration & pool size based on device profiling.
+struct SingleVideoDetailView: View {
+    let video: VideoItem
+    @State private var isMuted: Bool = false
+    
+    var body: some View {
+        VStack {
+            // Full-screen video player with controls
+            SingleVideoPlayer(videoItem: video, showControls: true, isMuted: $isMuted)
+                .aspectRatio(16/9, contentMode: .fit)
+            
+            // Video details below
+            VStack(alignment: .leading, spacing: 16) {
+                Text(video.title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text("Video URL: \(video.url.absoluteString)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct EmbeddedVideoView: View {
+    let video: VideoItem
+    var height: CGFloat = 200
+    @Binding var isMuted: Bool
+    /// If true, video will loop automatically when finished playing.
+    let isLooping: Bool
+    
+    init(video: VideoItem, height: CGFloat = 200, isMuted: Binding<Bool>, isLooping: Bool = true) {
+        self.video = video
+        self.height = height
+        self._isMuted = isMuted
+        self.isLooping = isLooping
+    }
+    
+    var body: some View {
+        VStack {
+           
+            
+            // Embedded video without controls
+            SingleVideoPlayer(videoItem: video, showControls: false, isMuted: $isMuted, isLooping: isLooping)
+                .frame(height: height)
+           
+        }
+    }
+}
+
+struct CompactVideoPlayer: View {
+    let video: VideoItem
+    @State private var isPlaying = false
+    @State private var isMuted: Bool = false
+    
+    var body: some View {
+        VStack {
+            // Compact video player
+            SingleVideoPlayer(videoItem: video, showControls: true, isMuted: $isMuted)
+                .frame(height: 250)
+                .cornerRadius(8)
+            
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(video.title)
+                        .font(.headline)
+                    Text("Tap to play")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 4)
+    }
+}
+
+
+// MARK: - Visibility Tracking View Modifier
+struct VisibilityTracker: UIViewRepresentable {
+    let onVisibilityChanged: (Bool) -> Void
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = VisibilityTrackingView()
+        view.onVisibilityChanged = onVisibilityChanged
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+class VisibilityTrackingView: UIView {
+    var onVisibilityChanged: ((Bool) -> Void)?
+    private var isVisible = false
+    
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        checkVisibility()
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        checkVisibility()
+    }
+    
+    private func checkVisibility() {
+        guard let window = window else { return }
+        
+        let viewFrame = convert(bounds, to: window)
+        let windowBounds = window.bounds
+        
+        let visibleRect = viewFrame.intersection(windowBounds)
+        let visibilityThreshold: CGFloat = 0.5
+        
+        let newIsVisible = visibleRect.height >= bounds.height * visibilityThreshold
+        
+        if newIsVisible != isVisible {
+            isVisible = newIsVisible
+            onVisibilityChanged?(isVisible)
+        }
+    }
+}
+
+// MARK: - Main Feed View
+struct FastVideoFeed: View {
+    @State private var videos: [VideoItem] = []
+    @State private var visibleVideos: Set<String> = []
+    @StateObject private var preloader = VideoPreloader()
+    @StateObject private var playerPool = VideoPlayerPool()
+    @State private var isMuted: Bool = false
+    
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(videos.enumerated(), id: \.element.id) { index, video in
+                        VideoCell(
+                            item: video,
+                            isVisible: visibleVideos.contains(video.id),
+                            showControls: false,
+                            isMuted: $isMuted
+                        ) { isVisible in
+                            handleVideoVisibility(video.id, isVisible: isVisible)
+                        }
+                        .frame(height: UIScreen.main.bounds.height * 0.7)
+                        .background(
+                            VisibilityTracker { isVisible in
+                                handleVideoVisibility(video.id, isVisible: isVisible)
+                            }
+                        )
+                        .onAppear {
+                            // Preload next few videos
+                            preloadUpcomingVideos(from: index)
+                        }
+                        .id(video.id)
+                    }
+                }
+            }
+            .environmentObject(playerPool)
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                playerPool.pauseAll()
+            }
+        }
+        .onAppear {
+            loadSampleVideos()
+        }
+    }
+    
+    private func handleVideoVisibility(_ videoId: String, isVisible: Bool) {
+        print("Video visibility changed: \(videoId) - \(isVisible)")
+        
+        if isVisible {
+            visibleVideos.insert(videoId)
+            // Pause other videos when a new one becomes visible
+            let othersToRemove = visibleVideos.filter { $0 != videoId }
+            for otherId in othersToRemove {
+                visibleVideos.remove(otherId)
+            }
+        } else {
+            visibleVideos.remove(videoId)
+        }
+    }
+    
+    private func preloadUpcomingVideos(from currentIndex: Int) {
+        guard !videos.isEmpty, videos.indices.contains(currentIndex) else { return }
+        let preloadStart = currentIndex + 1
+        let preloadEnd = min(currentIndex + 3, videos.count - 1)
+        guard preloadStart <= preloadEnd else { return }
+        for index in preloadStart...preloadEnd {
+            guard videos.indices.contains(index) else { continue }
+            preloader.preloadVideo(for: videos[index])
+        }
+        // Cancel preloading for videos that are too far away
+        if currentIndex > 3 {
+            let cancelStart = 0
+            let cancelEnd = currentIndex - 4
+            guard cancelStart <= cancelEnd, cancelEnd < videos.count else { return }
+            for index in cancelStart...cancelEnd {
+                guard videos.indices.contains(index) else { continue }
+                preloader.cancelPreload(for: videos[index])
+            }
+        }
+    }
+    
+    private func loadSampleVideos() {
+        print("Loading sample videos...")
+        // Sample video data with working URLs
+        videos = [
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")!,
+                thumbnailURL: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg"),
+                title: "Big Buck Bunny"
+            ),
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")!,
+                thumbnailURL: URL(string: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg"),
+                title: "Elephant's Dream"
+            ),
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")!,
+                thumbnailURL: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg"),
+                title: "For Bigger Blazes"
+            ),
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4")!,
+                thumbnailURL: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerEscapes.jpg"),
+                title: "For Bigger Escapes"
+            ),
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4")!,
+                thumbnailURL: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerFun.jpg"),
+                title: "For Bigger Fun"
+            ),
+            VideoItem(
+                id: UUID().uuidString,
+                url: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4")!,
+                thumbnailURL: URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerJoyrides.jpg"),
+                title: "For Bigger Joyrides"
+            )
+        ]
+        print("Loaded \(videos.count) videos")
+    }
+}
+
+#Preview {
+    NavigationView {
+        EmbeddedVideoView(video: sampleVideo, isMuted: .constant(true))
+    }
+}
+

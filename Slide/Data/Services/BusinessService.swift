@@ -143,7 +143,7 @@ class BusinessService: ObservableObject, BusinessServiceProtocol {
                 featuredUntil: business.featuredUntil
             )
             
-            try await db.collection(collectionName)
+            try db.collection(collectionName)
                 .document(businessToCreate.id.uuidString)
                 .setData(from: businessToCreate)
             

@@ -1,7 +1,16 @@
+//
+//  PostType.swift
+//  Slide
+//
+//  Created by Nick Rogers on 8/26/25.
+//
+
+
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 import Combine
+import SwiftUI
 
 // MARK: - Post Data Models
 
@@ -21,6 +30,26 @@ enum PostType: String, CaseIterable, Codable {
         case .news: return "News"
         }
     }
+    
+    var color: Color {
+        switch self {
+        case .announcement: return Color.red
+        case .promotion: return .yellow
+        case .event: return Color.blue
+        case .update: return Color.orange
+        case .news: return Color.teal
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .announcement: return "megaphone"
+        case .promotion: return "bubble"
+        case .event: return "calendar"
+        case .update: return "info.circle.fill"
+        case .news: return "newspaper"
+        }
+    }
 }
 
 enum PostStatus: String, Codable {
@@ -31,7 +60,7 @@ enum PostStatus: String, Codable {
 }
 
 struct BusinessPost: Identifiable, Codable {
-    var id: String?
+    var id: String? = UUID().uuidString
     let businessId: String
     let authorId: String
     var title: String
@@ -61,6 +90,42 @@ struct BusinessPost: Identifiable, Codable {
         self.metadata = PostMetadata()
         self.createdAt = Timestamp()
         self.updatedAt = Timestamp()
+    }
+    
+    public init(
+        id: String,
+        businessId: String,
+        authorId: String,
+        title: String,
+        content: String,
+        postType: PostType,
+        status: PostStatus,
+        tags: [String],
+        mediaUrls: [String],
+        scheduledDate: Date? = nil,
+        publishDate: Date? = nil,
+        expirationDate: Date? = nil,
+        engagement: PostEngagement = PostEngagement(),
+        metadata: PostMetadata = PostMetadata(),
+        createdAt: Timestamp,
+        updatedAt: Timestamp
+    ) {
+        self.id = id
+        self.businessId = businessId
+        self.authorId = authorId
+        self.title = title
+        self.content = content
+        self.postType = postType
+        self.status = status
+        self.tags = tags
+        self.mediaUrls = mediaUrls
+        self.scheduledDate = scheduledDate
+        self.publishDate = publishDate
+        self.expirationDate = expirationDate
+        self.engagement = engagement
+        self.metadata = metadata
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -102,7 +167,7 @@ class FirebaseBusinessPostRepository: BusinessPostRepository {
         newPost.createdAt = Timestamp()
         newPost.updatedAt = Timestamp()
         
-        let docRef = try await db.collection(collection).addDocument(from: newPost)
+        let docRef = try db.collection(collection).addDocument(from: newPost)
         return docRef.documentID
     }
     
@@ -114,11 +179,11 @@ class FirebaseBusinessPostRepository: BusinessPostRepository {
         var updatedPost = post
         updatedPost.updatedAt = Timestamp()
         
-        try await db.collection(collection).document(id).setData(from: updatedPost)
+        try db.collection(collection).document(id).setData(from: updatedPost)
     }
     
     func deletePost(id: String) async throws {
-        await db.collection(collection).document(id).delete()
+        try await db.collection(collection).document(id).delete()
     }
     
     func getPost(id: String) async throws -> BusinessPost? {
@@ -178,11 +243,11 @@ protocol BusinessPostService {
 class DefaultBusinessPostService: BusinessPostService {
     private let repository: BusinessPostRepository
     private let authService: AuthenticationService
-    private let notificationService: NotificationService
+    private let notificationService: PostNotificationService
     
     init(repository: BusinessPostRepository = FirebaseBusinessPostRepository(),
          authService: AuthenticationService = DefaultAuthenticationService(),
-         notificationService: NotificationService = DefaultNotificationService()) {
+         notificationService: PostNotificationService = DefaultPostNotificationService()) {
         self.repository = repository
         self.authService = authService
         self.notificationService = notificationService
@@ -263,7 +328,7 @@ class DefaultBusinessPostService: BusinessPostService {
     }
     
     func getBusinessPosts(businessId: String) async throws -> [BusinessPost] {
-        return try await repository.getPostsForBusiness(businessId: businessId)
+        return try await repository.getPostsForBusiness(businessId: businessId, limit: nil)
     }
     
     func getDraftPosts(businessId: String) async throws -> [BusinessPost] {
@@ -314,8 +379,10 @@ class BusinessPostViewModel: ObservableObject {
             posts = try await postService.getBusinessPosts(businessId: businessId)
             draftPosts = try await postService.getDraftPosts(businessId: businessId)
             scheduledPosts = try await postService.getScheduledPosts(businessId: businessId)
+            print ("Loaded posts: \(posts.count)")
         } catch {
             self.error = error as? PostError ?? .unknown
+            print("THERE WAS AN ERROR FETCHING POSTS - : \(error.localizedDescription)")
         }
     }
     
@@ -401,12 +468,12 @@ class DefaultAuthenticationService: AuthenticationService {
     }
 }
 
-protocol NotificationService {
+protocol PostNotificationService {
     func notifyBusinessFollowers(businessId: String, post: BusinessPost) async
     func schedulePostNotification(post: BusinessPost, date: Date) async
 }
 
-class DefaultNotificationService: NotificationService {
+class DefaultPostNotificationService: PostNotificationService {
     func notifyBusinessFollowers(businessId: String, post: BusinessPost) async {
         // Implement push notification logic
     }
