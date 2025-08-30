@@ -647,9 +647,136 @@ struct FastVideoFeed: View {
     }
 }
 
-#Preview {
-    NavigationView {
-        EmbeddedVideoView(video: sampleVideo, isMuted: .constant(true))
+struct UIVideoPlayerView: View {
+    // MARK: - Properties
+    let videoItem: VideoItem
+    var height: CGFloat = 200
+    @Binding var isMuted: Bool
+    
+    // MARK: - State
+    @State private var isReadyToPlay: Bool = false
+    @State private var showError: Bool = false
+    @State private var playbackCommand: PlaybackCommand = .idle
+    @State private var currentTime: Double = 0
+    @State private var playerEvents: [PlayerEvent] = []
+    
+    // MARK: - Body
+    var body: some View {
+        ZStack {
+            // Main Video Player using VideoItem
+            ExtVideoPlayer(settings: .constant(videoSettings),
+                          command: $playbackCommand)
+                .onPlayerTimeChange { newTime in
+                    currentTime = newTime
+                }
+                .onPlayerEventChange { events in
+                    playerEvents = events
+                    handlePlayerEvents(events)
+                }
+                .onAppear {
+                    // Start playback when view appears
+                    playbackCommand = .play
+                }
+                .onTapGesture {
+                    isMuted.toggle()
+                }
+              
+                
+            
+            // Optional overlay for video title
+            overlayView
+        }
+//        .frame(height: height)
+        .onChange(of: isMuted) { wasMuted, isMuted in
+            if isMuted == true {
+                playbackCommand = .mute
+            } else {
+                playbackCommand = .unmute
+            }
+        }
     }
 }
+
+
+
+// MARK: - Private Helpers
+private extension UIVideoPlayerView {
+    /// Video player settings using VideoItem's URL
+    var videoSettings: VideoSettings {
+        .init {
+            // Use the URL from VideoItem directly
+            SourceName(videoItem.url.absoluteString)
+            Ext("mp4")
+            Gravity(.resizeAspectFill)
+            Loop() // Enable looping
+            TimePublishing() // Enable time updates
+            Events([.itemStatusChangedAny,.playing, .paused, .durationAny, .errorAny])
+        }
+    }
+    
+    /// Handle player events
+    func handlePlayerEvents(_ events: [PlayerEvent]) {
+        for event in events {
+            switch event {
+            case .itemStatusChanged(let status):
+                switch status {
+                case .unknown:
+                    break
+                case .readyToPlay:
+                    if isMuted {
+                        playbackCommand = .mute
+                    }
+                    self.isReadyToPlay = true
+                case .failed:
+                    self.showError = true
+                @unknown default:
+                    break
+                }
+            case .playing:
+                print("Video \(videoItem.title) started playing")
+            case .paused:
+                print("Video \(videoItem.title) paused")
+            case .duration(let duration):
+                print("Video duration: \(CMTimeGetSeconds(duration)) seconds")
+            case .error(let error):
+                print("Playback error for \(videoItem.title): \(error)")
+            default:
+                break
+            }
+        }
+    }
+    
+    /// Overlay view with video title
+    @ViewBuilder
+    var overlayView: some View {
+        if !isReadyToPlay {
+            Color.gray.opacity(0.2)
+        } else if isReadyToPlay {
+            
+        } else if showError {
+            VStack {
+                Image(systemName: "arrow.trianglehead.clockwise")
+                    .imageScale(.large)
+                Text("Try Again")
+            }
+        }
+    }
+}
+
+#Preview {
+    NavigationView {
+        UIVideoPlayerView(videoItem: sampleVideo, isMuted: .constant(true))
+    }
+}
+
+
+let sampleSocialVideo = VideoItem(
+    id: UUID().uuidString,
+    url: Bundle.main.url(forResource: "socialvideo", withExtension: ".mp4")!,
+    thumbnailURL: URL(
+        string:
+            "https://firebasestorage.googleapis.com/v0/b/bookd-16634.firebasestorage.app/o/dev%2Fframe-1%20(1).png?alt=media&token=fd6cbe0b-2316-4139-8083-a56db3bb1e1d"
+    ),
+    title: "SoFi Stadium"
+)
 

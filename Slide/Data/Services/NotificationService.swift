@@ -58,14 +58,14 @@ class NotificationService: ObservableObject {
     }
 
     func scheduleProximityNotification(
-        for business: Business,
+        for business: Place,
         userLocation: CLLocation
     ) async {
         guard isNotificationEnabled else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "You're near \(business.name)!"
-        content.body = business.description ?? "Check out this cool spot nearby"
+        content.body = business.generativeSummary?.overview?.text ?? "Check out this cool spot nearby"
         content.sound = .default
         content.userInfo = ["venueId": business.id, "type": "proximity"]
 

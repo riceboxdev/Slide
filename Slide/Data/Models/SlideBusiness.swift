@@ -78,3 +78,32 @@ struct SlideBusiness: Identifiable, Codable {
     var createdAt: Timestamp
     var updatedAt: Timestamp
 }
+
+struct DisplayName: Codable {
+    var text: String
+    var languageCode: String?
+}
+
+struct GeoLocation: Codable, Identifiable {
+    var id: String { "\(latitude),\(longitude)" }
+    
+    let latitude: Double
+    let longitude: Double
+    
+    // Using custom init to handle any additional fields that might be present
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        latitude = try container.decode(Double.self, forKey: .latitude)
+        longitude = try container.decode(Double.self, forKey: .longitude)
+        // Ignore any other fields that might be present
+    }
+    
+    init(latitude: Double, longitude: Double) {
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case latitude, longitude
+    }
+}

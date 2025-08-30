@@ -21,7 +21,8 @@
 		FE293EB12E38F2AA008472B9 /* FirebaseStorageCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = FE293EB02E38F2AA008472B9 /* FirebaseStorageCombine-Community */; };
 		FE293EE52E38FC2B008472B9 /* GooglePlacesSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FE293EE42E38FC2B008472B9 /* GooglePlacesSwift */; };
 		FE7511D02E5CC05400717316 /* ColorKit in Frameworks */ = {isa = PBXBuildFile; productRef = FE7511CF2E5CC05400717316 /* ColorKit */; };
-		FEFD20912E60DA7D007E66F6 /* swiftui-loop-videoplayer in Frameworks */ = {isa = PBXBuildFile; productRef = FEFD20902E60DA7D007E66F6 /* swiftui-loop-videoplayer */; };
+		FE7570E12E60FEDB00E48755 /* swiftui-loop-videoplayer in Frameworks */ = {isa = PBXBuildFile; productRef = FE7570E02E60FEDB00E48755 /* swiftui-loop-videoplayer */; };
+		FEC48D642E638490008954E3 /* EmptyPage in Frameworks */ = {isa = PBXBuildFile; productRef = FEC48D632E638490008954E3 /* EmptyPage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,8 +89,9 @@
 				FE293EA32E38F2AA008472B9 /* FirebaseCore in Frameworks */,
 				FE293EAD2E38F2AA008472B9 /* FirebaseFunctionsCombine-Community in Frameworks */,
 				FE293EAB2E38F2AA008472B9 /* FirebaseFunctions in Frameworks */,
+				FEC48D642E638490008954E3 /* EmptyPage in Frameworks */,
 				FE7511D02E5CC05400717316 /* ColorKit in Frameworks */,
-				FEFD20912E60DA7D007E66F6 /* swiftui-loop-videoplayer in Frameworks */,
+				FE7570E12E60FEDB00E48755 /* swiftui-loop-videoplayer in Frameworks */,
 				FE293E9F2E38F2AA008472B9 /* FirebaseAuth in Frameworks */,
 				FE293EA52E38F2AA008472B9 /* FirebaseCrashlytics in Frameworks */,
 				FE293E9D2E38F2AA008472B9 /* FirebaseAnalyticsCore in Frameworks */,
@@ -172,7 +174,8 @@
 				FE293EB02E38F2AA008472B9 /* FirebaseStorageCombine-Community */,
 				FE293EE42E38FC2B008472B9 /* GooglePlacesSwift */,
 				FE7511CF2E5CC05400717316 /* ColorKit */,
-				FEFD20902E60DA7D007E66F6 /* swiftui-loop-videoplayer */,
+				FE7570E02E60FEDB00E48755 /* swiftui-loop-videoplayer */,
+				FEC48D632E638490008954E3 /* EmptyPage */,
 			);
 			productName = Slide;
 			productReference = FE293E6B2E38F1CB008472B9 /* Slide.app */;
@@ -260,7 +263,8 @@
 				FE293E992E38F2AA008472B9 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				FE293EE32E38FC2B008472B9 /* XCRemoteSwiftPackageReference "ios-places-sdk" */,
 				FE7511CE2E5CC05400717316 /* XCLocalSwiftPackageReference "../../DEV/Packages/ColorKit-master" */,
-				FEFD208F2E60DA7D007E66F6 /* XCRemoteSwiftPackageReference "swiftui-loop-videoPlayer" */,
+				FE7570DF2E60FEDB00E48755 /* XCLocalSwiftPackageReference "../../DEV/Packages/SlideVideoPlayer" */,
+				FEC48D622E638490008954E3 /* XCLocalSwiftPackageReference "../../DEV/Packages/EmptyPage-master" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FE293E6C2E38F1CB008472B9 /* Products */;
@@ -659,6 +663,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../DEV/Packages/ColorKit-master";
 		};
+		FE7570DF2E60FEDB00E48755 /* XCLocalSwiftPackageReference "../../DEV/Packages/SlideVideoPlayer" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../DEV/Packages/SlideVideoPlayer;
+		};
+		FEC48D622E638490008954E3 /* XCLocalSwiftPackageReference "../../DEV/Packages/EmptyPage-master" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../DEV/Packages/EmptyPage-master";
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -676,14 +688,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 10.1.0;
-			};
-		};
-		FEFD208F2E60DA7D007E66F6 /* XCRemoteSwiftPackageReference "swiftui-loop-videoPlayer" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/swiftuiux/swiftui-loop-videoPlayer.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.8.7;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -758,10 +762,13 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = ColorKit;
 		};
-		FEFD20902E60DA7D007E66F6 /* swiftui-loop-videoplayer */ = {
+		FE7570E02E60FEDB00E48755 /* swiftui-loop-videoplayer */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = FEFD208F2E60DA7D007E66F6 /* XCRemoteSwiftPackageReference "swiftui-loop-videoPlayer" */;
 			productName = "swiftui-loop-videoplayer";
+		};
+		FEC48D632E638490008954E3 /* EmptyPage */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EmptyPage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

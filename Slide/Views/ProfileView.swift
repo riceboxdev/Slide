@@ -65,8 +65,7 @@ struct ProfileView: View {
                                 )
                             )
                             .hLeading()
-                        BusinessRowCard(business: Business.sampleData[0])
-                        BusinessRowCard(business: Business.sampleData[1])
+                      
                     }
                     .padding(.horizontal, 10)
                     
@@ -140,53 +139,6 @@ extension View {
     }
 }
 
-struct BusinessRowCard: View {
-    let business: Business
-    var body: some View {
-        VStack {
-           
-            HStack(spacing: 16) {
-                CachedAsyncImage(
-                    url: URL(
-                        string: business.avatar ?? ""
-                    )
-                ) { image, uiImage in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                
-                } placeholder: {
-                    Color.gray
-                }
-                .frame(width: 50, height: 50)
-                .clipShape(.rect(cornerRadius: 10))
-                
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(business.name)
-                        .font(
-                            .variableFont(
-                                18,
-                                axis: [FontVariations.weight.rawValue: 600]
-                            )
-                        )
-                    Text(business.primaryCategory.displayName)
-                        .font(
-                            .variableFont(
-                                14,
-                                axis: [FontVariations.weight.rawValue: 400]
-                            )
-                        )
-                }
-                
-                Spacer()
-                
-                Image(systemName: "arrow.right")
-            }
-        }
-        .padding(10)
-        .background(.thinMaterial, in: .rect(cornerRadius: 25))
-    }
-}
 
 struct ProfileActionsCard: View {
     let label: String

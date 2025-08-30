@@ -26,7 +26,7 @@ struct ContentView: View {
                     NotificationPermissionView()
                 case .ready:
                     if let user = coordinator.authService.currentUser, !user.personalInfo.isOnboardingComplete {
-                        OnboardingView(authService: coordinator.authService)
+//                        OnboardingView(authService: coordinator.authService)
                     } else {
                         MainTabView()
                     }

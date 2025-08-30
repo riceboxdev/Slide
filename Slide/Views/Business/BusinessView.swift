@@ -50,6 +50,7 @@ struct BusinessView: View {
                 .ignoresSafeArea()
 
             }
+            .coordinateSpace(name: "scroll")
         }
         .ignoresSafeArea()
         .background(.green.opacity(0.05))
@@ -71,7 +72,7 @@ struct BusinessView: View {
     @ViewBuilder
     func videoHeader() -> some View {
         GeometryReader { headerGeo in
-            let minY = headerGeo.frame(in: .global).minY
+            let minY = headerGeo.frame(in: .named("scroll")).minY  // 👈 fix
             let baseHeight: CGFloat = expandMedia ? 500 : 250
             let height = max(
                 baseHeight,
@@ -80,12 +81,8 @@ struct BusinessView: View {
             
             ZStack {
                 if let video = heroVideo {
-                    EmbeddedVideoView(
-                        video: video,
-                        height: height,
-                        isMuted: $isMuted,
-                        isLooping: true
-                    )
+                    UIVideoPlayerView(videoItem: video, height: height, isMuted: $isMuted)
+//                        .frame(height: height)
                 }
                 if !expandMedia {
                     LinearGradient(
@@ -97,7 +94,9 @@ struct BusinessView: View {
                         endPoint: .bottom
                     )
                 }
-            }.frame(width: headerGeo.size.width, height: height)
+            }
+            .animation(nil, value: height)
+            .frame(width: headerGeo.size.width, height: height)
                 .clipped()
                 .overlay(alignment: .bottomLeading) {
                     mediaOverlay()
@@ -386,15 +385,7 @@ struct SlideBusinessMapPreview: View {
     }
 }
 
-#Preview {
-    if let place = createPlaceDetailsFromJSON() {
-        if let business = convertPlaceToSlideBusiness(place: place) {
-            NavigationView {
-                BusinessView(business: business)
-            }
-        }
-    }
-}
+
 
 struct PullEffectScrollView<Content: View>: View {
     var dragDistance: CGFloat = 100

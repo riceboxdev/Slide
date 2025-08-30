@@ -51,7 +51,6 @@ struct PersonalInfo: Codable, Equatable {
     var profileImageURL: String?
 
     var bio: String?
-    var interests: [BusinessSubCategory]
 
     // Account info
     var accountCreated: Date
@@ -71,7 +70,7 @@ struct PersonalInfo: Codable, Equatable {
         profileImageURL: String? = nil,
         dateOfBirth: Date? = nil,
         bio: String? = nil,
-        interests: [BusinessSubCategory],
+    
         accountCreated: Date = Date(),
         lastLogin: Date? = nil,
         isEmailVerified: Bool = false,
@@ -87,7 +86,7 @@ struct PersonalInfo: Codable, Equatable {
         self.profileImageURL = profileImageURL
         self.dateOfBirth = dateOfBirth
         self.bio = bio
-        self.interests = interests
+      
         self.accountCreated = accountCreated
         self.lastLogin = lastLogin
         self.isEmailVerified = isEmailVerified
@@ -152,7 +151,7 @@ struct PersonalInfo: Codable, Equatable {
         ) ?? false
         
         bio = try container.decodeIfPresent(String.self, forKey: .bio)
-        interests = try container.decodeIfPresent([BusinessSubCategory].self, forKey: .interests) ?? []
+      
 
         // Custom decoding for dates
         // Handle dateOfBirth
@@ -221,7 +220,7 @@ struct PersonalInfo: Codable, Equatable {
         try container.encode(isPhoneVerified, forKey: .isPhoneVerified)
         try container.encode(isOnboardingComplete, forKey: .isOnboardingComplete)
         try container.encodeIfPresent(bio, forKey: .bio)
-        try container.encode(interests, forKey: .interests)
+   
         try container.encode(enableNotifications, forKey: .enableNotifications)
 
         // Encode dates as Firestore Timestamps
@@ -487,7 +486,7 @@ extension UserProfile {
                 profileImageURL: avatar,
                 dateOfBirth: nil,
                 bio: nil,
-                interests: [],
+        
                 accountCreated: Date(),
                 lastLogin: nil,
                 isEmailVerified: false,

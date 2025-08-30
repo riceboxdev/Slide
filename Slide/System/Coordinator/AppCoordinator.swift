@@ -30,12 +30,12 @@ class AppCoordinator: ObservableObject {
     @Published var locationService: LocationService
     @Published var notificationService: NotificationService
     @Published var userService: UserService
-    @Published var businessService: BusinessService
+
     //    @Published var venueService: VenueService
     @Published var imageService: ImageManager
 //    @Published var networkService: NetworkService
 
-    @Published var favoriteVenues: [Business] = []
+
 
     // MARK: - App State
     @Published var isAuthenticated = false
@@ -58,7 +58,7 @@ class AppCoordinator: ObservableObject {
         self.locationService = LocationService()
         self.notificationService = NotificationService()
         self.userService = UserService()
-        self.businessService = BusinessService()
+    
         self.imageService = ImageManager.shared
 //        self.networkService = NetworkService()
 
@@ -177,46 +177,21 @@ class AppCoordinator: ObservableObject {
         // Check for nearby venues if notifications are enabled
         if user.shouldReceiveProximityNotifications() {
             Task {
-                await checkProximityNotifications(for: location)
+//                await checkProximityNotifications(for: location)
             }
         }
     }
 
-    private func checkProximityNotifications(for location: CLLocation) async {
-           guard let user = currentUser else { return }
-           
-           // Cancel any existing proximity subscription
-           proximitySubscription?.cancel()
-           
-           // Set up real-time listener for nearby businesses
-           proximitySubscription = businessService.listenToBusinessesNearLocation(
-               location.coordinate,
-               radius: 10.0, // 10 kilometers (business service expects kilometers)
-               limit: 50 // Adjust limit as needed
-           )
-           .receive(on: DispatchQueue.main)
-           .sink(
-               receiveCompletion: { completion in
-                   if case .failure(let error) = completion {
-                       print("Error listening to nearby businesses: \(error)")
-                   }
-               },
-               receiveValue: { [weak self] businesses in
-                   Task {
-                       await self?.processNearbyBusinesses(businesses, userLocation: location)
-                   }
-               }
-           )
-       }
+   
     
-    private func processNearbyBusinesses(_ businesses: [Business], userLocation: CLLocation) async {
-        for business in businesses {
-            await notificationService.scheduleProximityNotification(
-                for: business, // You may need to adapt this if your notification service expects a different type
-                userLocation: userLocation
-            )
-        }
-    }
+//    private func processNearbyBusinesses(_ businesses: [Business], userLocation: CLLocation) async {
+//        for business in businesses {
+//            await notificationService.scheduleProximityNotification(
+//                for: business, // You may need to adapt this if your notification service expects a different type
+//                userLocation: userLocation
+//            )
+//        }
+//    }
     
 
     // MARK: - Public Methods

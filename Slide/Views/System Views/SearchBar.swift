@@ -11,6 +11,7 @@ import SwiftUI
 struct SearchBar: View {
 //    @EnvironmentObject var coordinator: AppCoordinator
     @Binding var text: String
+    var height: CGFloat = 50
     @FocusState private var isFocused
     
     var onSubmit: (String) -> Void
@@ -19,7 +20,7 @@ struct SearchBar: View {
         VStack {
             ZStack(alignment: .center) {
                 PastelMeshGradientView()
-                    .frame(height: 60)
+                    .frame(height: height + 10)
                     .clipShape(.capsule)
                     .blur(radius: 16)
                     .opacity(isFocused ? 0.9 : 0.3)
@@ -43,7 +44,7 @@ struct SearchBar: View {
                         }
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 50)
+                .frame(height: height)
                 .glassEffect(.regular.interactive())
                 .padding(.horizontal, 6)
             }
